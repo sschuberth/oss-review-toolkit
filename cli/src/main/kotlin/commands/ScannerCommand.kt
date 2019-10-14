@@ -19,27 +19,30 @@
 
 package com.here.ort.commands
 
-import com.beust.jcommander.IStringConverter
-import com.beust.jcommander.JCommander
-import com.beust.jcommander.Parameter
-import com.beust.jcommander.ParameterException
-import com.beust.jcommander.Parameters
+import com.github.ajalt.clikt.core.BadParameterValue
+import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.core.UsageError
+import com.github.ajalt.clikt.core.requireObject
+import com.github.ajalt.clikt.parameters.options.convert
+import com.github.ajalt.clikt.parameters.options.default
+import com.github.ajalt.clikt.parameters.options.option
+import com.github.ajalt.clikt.parameters.options.required
+import com.github.ajalt.clikt.parameters.options.split
+import com.github.ajalt.clikt.parameters.types.enum
+import com.github.ajalt.clikt.parameters.types.file
 
-import com.here.ort.CommandWithHelp
 import com.here.ort.model.OutputFormat
 import com.here.ort.model.config.OrtConfiguration
 import com.here.ort.model.config.ScannerConfiguration
 import com.here.ort.model.mapper
+import com.here.ort.model.readValue
 import com.here.ort.scanner.LocalScanner
 import com.here.ort.scanner.ScanResultsStorage
 import com.here.ort.scanner.Scanner
-import com.here.ort.scanner.ScannerFactory
 import com.here.ort.scanner.TOOL_NAME
 import com.here.ort.scanner.scanners.ScanCode
 import com.here.ort.scanner.storages.FileBasedStorage
 import com.here.ort.scanner.storages.SCAN_RESULTS_FILE_NAME
-import com.here.ort.utils.PARAMETER_ORDER_MANDATORY
-import com.here.ort.utils.PARAMETER_ORDER_OPTIONAL
 import com.here.ort.utils.expandTilde
 import com.here.ort.utils.getUserOrtDirectory
 import com.here.ort.utils.log
@@ -47,74 +50,58 @@ import com.here.ort.utils.storage.LocalFileStorage
 
 import java.io.File
 
-@Parameters(commandNames = ["scan"], commandDescription = "Run existing copyright / license scanners.")
-object ScannerCommand : CommandWithHelp() {
-    private class ScannerConverter : IStringConverter<ScannerFactory> {
-        override fun convert(scannerName: String): ScannerFactory {
-            // TODO: Consider allowing to enable multiple scanners (and potentially running them in parallel).
-            return Scanner.ALL.find { it.scannerName.equals(scannerName, ignoreCase = true) }
-                ?: throw ParameterException("Scanner '$scannerName' is not one of ${Scanner.ALL}.")
-        }
-    }
+class ScannerCommand : CliktCommand(name = "scan", help = "Run existing copyright / license scanners.") {
+    private val ortFile by option(
+        "--ort-file", "-a",
+        help = "An ORT result file with an analyzer result to use. Source code will be downloaded automatically if " +
+                "needed. This parameter and '--input-path' are mutually exclusive."
+    ).file(exists = true, folderOkay = false, readable = true)
 
-    @Parameter(
-        description = "An ORT result file with an analyzer result to use. Source code will be downloaded " +
-                "automatically if needed. This parameter and '--input-path' are mutually exclusive.",
-        names = ["--ort-file", "-a"],
-        order = PARAMETER_ORDER_OPTIONAL
-    )
-    private var ortFile: File? = null
+    private val inputPath by option(
+        "--input-path", "-i",
+        help = "An input directory or file to scan. This parameter and '--ort-file' are mutually exclusive."
+    ).file(exists = true, readable = true)
 
-    @Parameter(
-        description = "An input directory or file to scan. This parameter and '--ort-file' are mutually " +
-                "exclusive.",
-        names = ["--input-path", "-i"],
-        order = PARAMETER_ORDER_OPTIONAL
-    )
-    private var inputPath: File? = null
+    private val scopesToScan by option(
+        "--scopes",
+        help = "The list of scopes whose packages shall be scanned. Works only with the '--ort-file' parameter. If " +
+                "empty, all scopes are scanned."
+    ).split(",")//.default(emptyList())
 
-    @Parameter(
-        description = "The list of scopes whose packages shall be scanned. Works only with the '--ort-file' " +
-                "parameter. If empty, all scopes are scanned.",
-        names = ["--scopes"],
-        order = PARAMETER_ORDER_OPTIONAL
-    )
-    private var scopesToScan = listOf<String>()
+    private val outputDir by option(
+        "--output-dir", "-o",
+        help = "The directory to write the scan results as ORT result file(s) to, in the specified output format(s)."
+    ).file(fileOkay = false, writable = true).required()
 
-    @Parameter(
-        description = "The directory to write the scan results as ORT result file(s) to, in the specified " +
-                "output format(s).",
-        names = ["--output-dir", "-o"],
-        required = true,
-        order = PARAMETER_ORDER_MANDATORY
-    )
-    @Suppress("LateinitUsage")
-    private lateinit var outputDir: File
+    private val downloadDir by option(
+        "--download-dir",
+        help = "The output directory for downloaded source code. Defaults to <output-dir>/downloads."
+    ).file(fileOkay = false, writable = true)
 
-    @Parameter(
-        description = "The output directory for downloaded source code. Defaults to <output-dir>/downloads.",
-        names = ["--download-dir"],
-        order = PARAMETER_ORDER_OPTIONAL
-    )
-    private var downloadDir: File? = null
+    private val scannerFactory by option(
+        "--scanner", "-s",
+        help = "The scanner to use."
+    ).convert { scannerName ->
+        // TODO: Consider allowing to enable multiple scanners (and potentially running them in parallel).
+        Scanner.ALL.find { it.scannerName.equals(scannerName, true) }
+            ?: throw BadParameterValue("Scanner '$scannerName' is not one of ${Scanner.ALL}.")
+    }.default(ScanCode.Factory())
 
-    @Parameter(
-        description = "The scanner to use.",
-        names = ["--scanner", "-s"],
-        converter = ScannerConverter::class,
-        order = PARAMETER_ORDER_OPTIONAL
-    )
-    private var scannerFactory: ScannerFactory = ScanCode.Factory()
+    private val outputFormats by option(
+        "--output-formats", "-f",
+        help = "The list of output formats to be used for the ORT result file(s)."
+    ).enum<OutputFormat>().split(",").default(listOf(OutputFormat.YAML))
 
-    @Parameter(
-        description = "The list of output formats to be used for the ORT result file(s).",
-        names = ["--output-formats", "-f"],
-        order = PARAMETER_ORDER_OPTIONAL
-    )
-    private var outputFormats = listOf(OutputFormat.YAML)
+    private val config by requireObject<OrtConfiguration>()
 
-    private fun configureScanner(scannerConfiguration: ScannerConfiguration?): Scanner {
-        val config = scannerConfiguration ?: ScannerConfiguration()
+    private fun configureScanner(configFile: File?): Scanner {
+        val config = configFile?.expandTilde()?.let {
+            require(it.isFile) {
+                "The provided configuration file '$it' is not actually a file."
+            }
+
+            it.readValue<ScannerConfiguration>()
+        } ?: ScannerConfiguration()
 
         // By default use a file based scan results storage.
         val localFileStorage = LocalFileStorage(getUserOrtDirectory().resolve(TOOL_NAME))
@@ -158,7 +145,7 @@ object ScannerCommand : CommandWithHelp() {
         return scanner
     }
 
-    override fun runCommand(jc: JCommander, config: OrtConfiguration): Int {
+    override fun run() {
         require((ortFile == null) != (inputPath == null)) {
             "Either '--ort-file' or '--input-path' must be specified."
         }
@@ -172,13 +159,11 @@ object ScannerCommand : CommandWithHelp() {
 
         val existingOutputFiles = outputFiles.filter { it.exists() }
         if (existingOutputFiles.isNotEmpty()) {
-            log.error { "None of the output files $existingOutputFiles must exist yet." }
-            return 2
+            throw UsageError("None of the output files $existingOutputFiles must exist yet.")
         }
 
         if (absoluteNativeOutputDir.exists() && absoluteNativeOutputDir.list().isNotEmpty()) {
-            log.error { "The directory '$absoluteNativeOutputDir' must not contain any files yet." }
-            return 2
+            throw UsageError("The directory '$absoluteNativeOutputDir' must not contain any files yet.")
         }
 
         val absoluteDownloadDir = downloadDir?.expandTilde()
@@ -206,7 +191,5 @@ object ScannerCommand : CommandWithHelp() {
             println("Writing scan result to '$file'.")
             file.mapper().writerWithDefaultPrettyPrinter().writeValue(file, ortResult)
         }
-
-        return 0
     }
 }

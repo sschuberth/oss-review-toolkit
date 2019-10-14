@@ -1,5 +1,5 @@
+val cliktVersion: String by project
 val config4kVersion: String by project
-val jcommanderVersion: String by project
 val kotlintestVersion: String by project
 val log4jCoreVersion: String by project
 val reflectionsVersion: String by project
@@ -11,7 +11,7 @@ plugins {
 
 application {
     applicationName = "ort"
-    mainClassName = "com.here.ort.Main"
+    mainClassName = "com.here.ort.MainKt"
 }
 
 repositories {
@@ -31,7 +31,7 @@ dependencies {
     compile(project(":scanner"))
     compile(project(":utils"))
 
-    compile("com.beust:jcommander:$jcommanderVersion")
+    compile("com.github.ajalt:clikt:$cliktVersion")
     compile("io.github.config4k:config4k:$config4kVersion")
     compile("org.apache.logging.log4j:log4j-core:$log4jCoreVersion")
     compile("org.jetbrains.kotlin:kotlin-stdlib-jdk8")
