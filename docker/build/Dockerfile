@@ -17,5 +17,13 @@
 
 FROM frolvlad/alpine-java:jdk8-slim
 
-# Required for Node.js to build the reporter-web-app.
-RUN apk add --no-cache libstdc++
+# The wildcard is a trick to copy files no matter whether we have a context or not.
+COPY * /root/
+
+RUN apk add --no-cache \
+    # Required for Node.js to build the reporter-web-app.
+    libstdc++ && \
+    # Required to allow to download via a proxy with a self-signed certificate.
+    if [ -x /root/import_proxy_certs.sh ]; then \
+        apk add --no-cache coreutils openssl && /root/import_proxy_certs.sh; \
+    fi
