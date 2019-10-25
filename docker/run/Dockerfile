@@ -52,6 +52,9 @@ ENV \
 
 ENV PATH="$PATH:$FLUTTER_HOME/bin:$FLUTTER_HOME/bin/cache/dart-sdk/bin"
 
+# This is a trick to copy files no matter whether we have a context or not.
+COPY * /root/
+
 # Apt install commands.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -76,7 +79,11 @@ RUN apt-get update && \
         python3-setuptools \
         sbt=$SBT_VERSION \
     && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    # Required to allow to download via a proxy with a self-signed certificate.
+    if [ -x /root/import_proxy_certs.sh ]; then \
+        /root/import_proxy_certs.sh; \
+    fi
 
 # Custom install commands.
 RUN \
