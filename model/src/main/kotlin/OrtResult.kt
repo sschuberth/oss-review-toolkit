@@ -169,7 +169,7 @@ data class OrtResult(
         return analyzerErrors.zipWithDefault(scannerErrors, emptySet()) { left, right -> left + right }
     }
 
-    private fun collectLicenseFindings(
+    fun collectLicenseFindings(
         id: Identifier
     ): Map<LicenseFindings, List<PathExclude>> {
         val result = mutableMapOf<LicenseFindings, List<PathExclude>>()
