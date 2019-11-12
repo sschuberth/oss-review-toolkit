@@ -200,7 +200,10 @@ interface ClearlyDefinedService {
      */
     data class ContributionInfo(
         val type: String,
+
+        // This will also be used as the pull-request title.
         val summary: String,
+
         val details: String,
         val resolution: String,
         val removedDefinitions: Boolean
