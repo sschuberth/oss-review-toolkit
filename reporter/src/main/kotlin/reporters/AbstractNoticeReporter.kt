@@ -23,6 +23,7 @@ import com.here.ort.model.Identifier
 import com.here.ort.model.LicenseFindingsMap
 import com.here.ort.model.OrtResult
 import com.here.ort.model.config.CopyrightGarbage
+import com.here.ort.model.config.OrtConfiguration
 import com.here.ort.model.licenses.LicenseConfiguration
 import com.here.ort.reporter.LicenseTextProvider
 import com.here.ort.reporter.Reporter
@@ -83,6 +84,7 @@ abstract class AbstractNoticeReporter : Reporter {
     override fun generateReport(
         outputStream: OutputStream,
         ortResult: OrtResult,
+        config: OrtConfiguration,
         resolutionProvider: ResolutionProvider,
         licenseTextProvider: LicenseTextProvider,
         copyrightGarbage: CopyrightGarbage,
@@ -113,7 +115,7 @@ abstract class AbstractNoticeReporter : Reporter {
         }
 
         outputStream.bufferedWriter().use {
-            it.write(generateNotices(noticeReport, licenseTextProvider, copyrightGarbage))
+            it.write(generateNotices(ortResult, config, noticeReport, licenseTextProvider, copyrightGarbage))
         }
     }
 
@@ -125,6 +127,8 @@ abstract class AbstractNoticeReporter : Reporter {
         }
 
     private fun generateNotices(
+        ortResult: OrtResult,
+        config: OrtConfiguration,
         noticeReport: NoticeReport,
         licenseTextProvider: LicenseTextProvider,
         copyrightGarbage: CopyrightGarbage
@@ -132,7 +136,7 @@ abstract class AbstractNoticeReporter : Reporter {
         buildString {
             append(noticeReport.headers.joinToString(NOTICE_SEPARATOR))
 
-            appendLicenses(noticeReport, licenseTextProvider, copyrightGarbage)
+            appendLicenses(ortResult, config, noticeReport, licenseTextProvider, copyrightGarbage)
 
             noticeReport.footers.forEach { footer ->
                 append(NOTICE_SEPARATOR)
@@ -141,6 +145,8 @@ abstract class AbstractNoticeReporter : Reporter {
         }
 
     abstract fun StringBuilder.appendLicenses(
+        ortResult: OrtResult,
+        config: OrtConfiguration,
         noticeReport: NoticeReport,
         licenseTextProvider: LicenseTextProvider,
         copyrightGarbage: CopyrightGarbage
