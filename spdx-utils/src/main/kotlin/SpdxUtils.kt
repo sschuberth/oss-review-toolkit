@@ -20,6 +20,7 @@
 package com.here.ort.spdx
 
 import java.io.File
+import java.net.URL
 import java.security.MessageDigest
 import java.util.EnumSet
 
@@ -156,14 +157,46 @@ inline fun <reified T : Enum<T>> enumSetOf(vararg elems: T): EnumSet<T> =
  * license text is retrieved from that directory if and only if the license text is not known by ORT.
  */
 fun getLicenseText(id: String, handleExceptions: Boolean = false, customLicenseTextsDir: File? = null): String? =
+    getLicenseTextReader(id, handleExceptions, customLicenseTextsDir)?.read()
+
+fun hasLicenseText(id: String, handleExceptions: Boolean = false, customLicenseTextsDir: File? = null): Boolean =
+    getLicenseTextReader(id, handleExceptions, customLicenseTextsDir) != null
+
+private fun getLicenseTextReader(
+    id: String,
+    handleExceptions: Boolean = false,
+    customLicenseTextsDir: File? = null
+): LicenseTextReader? =
     if (id.startsWith("LicenseRef-")) {
-        getLicenseTextFromResource(id) ?: customLicenseTextsDir?.let { getLicenseTextFromDirectory(id, it) }
+        getLicenseTextResource(id)?.let { LicenseUrlReader(it) }
+            ?: customLicenseTextsDir?.let { getLicenseTextFile(id, it)?.let { file -> LicenseFileReader(file) } }
     } else {
-        SpdxLicense.forId(id)?.text ?: SpdxLicenseException.forId(id)?.text?.takeIf { handleExceptions }
+        SpdxLicense.forId(id)?.let { SpdxLicenseTextReader(it) }
+            ?: SpdxLicenseException.forId(id)?.takeIf { handleExceptions }?.let { SpdxExceptionTextReader(it) }
     }
 
-private fun getLicenseTextFromResource(id: String): String? =
-    object {}.javaClass.getResource("/licenserefs/$id")?.readText()
+private sealed class LicenseTextReader {
+    abstract fun read(): String
+}
 
-private fun getLicenseTextFromDirectory(id: String, dir: File): String? =
-    dir.resolve(id).let { if (it.isFile) it.readText() else null }
+private class LicenseUrlReader(val url: URL) : LicenseTextReader() {
+    override fun read() = url.readText()
+}
+
+private class LicenseFileReader(val file: File) : LicenseTextReader() {
+    override fun read() = file.readText()
+}
+
+private class SpdxLicenseTextReader(val id: SpdxLicense) : LicenseTextReader() {
+    override fun read() = id.text
+}
+
+private class SpdxExceptionTextReader(val id: SpdxLicenseException) : LicenseTextReader() {
+    override fun read() = id.text
+}
+
+private fun getLicenseTextResource(id: String): URL? =
+    object {}.javaClass.getResource("/licenserefs/$id")
+
+private fun getLicenseTextFile(id: String, dir: File): File? =
+    dir.resolve(id).let { if (it.isFile) it else null }
