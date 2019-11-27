@@ -39,6 +39,7 @@ import com.here.ort.model.Hash
 import com.here.ort.model.jsonMapper
 import com.here.ort.model.config.AnalyzerConfiguration
 import com.here.ort.model.config.RepositoryConfiguration
+import com.here.ort.model.yamlMapper
 import com.here.ort.utils.CommandLineTool
 import com.here.ort.utils.stashDirectories
 
@@ -166,3 +167,19 @@ private data class ModuleDependency(
     @JsonProperty("Version") val version: String?,
     @JsonProperty("Main") val isMain: Boolean = false
 )
+
+fun main() {
+    val projectDir = File("/home/viernau/sources/github/athens")
+    val definitionFile = projectDir.resolve("go.mod")
+    val go = GoMod.Factory().create(
+        projectDir,
+        AnalyzerConfiguration(
+            ignoreToolVersions = true,
+            allowDynamicVersions = true
+        ),
+        RepositoryConfiguration()
+    )
+
+    val result = go.resolveDependencies(definitionFile)
+    println(yamlMapper.writeValueAsString(result))
+}
