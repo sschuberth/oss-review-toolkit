@@ -21,25 +21,16 @@ package com.here.ort.analyzer.managers
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 import com.fasterxml.jackson.annotation.JsonProperty
+import com.fasterxml.jackson.annotation.JsonTypeInfo
 import com.fasterxml.jackson.core.JsonFactory
 import com.fasterxml.jackson.module.kotlin.readValues
 
 import com.here.ort.analyzer.AbstractPackageManagerFactory
 import com.here.ort.analyzer.PackageManager
 import com.here.ort.downloader.VersionControlSystem
-import com.here.ort.model.Identifier
-import com.here.ort.model.Package
-import com.here.ort.model.PackageLinkage
-import com.here.ort.model.Project
-import com.here.ort.model.ProjectAnalyzerResult
-import com.here.ort.model.RemoteArtifact
-import com.here.ort.model.Scope
-import com.here.ort.model.VcsInfo
-import com.here.ort.model.Hash
-import com.here.ort.model.jsonMapper
+import com.here.ort.model.*
 import com.here.ort.model.config.AnalyzerConfiguration
 import com.here.ort.model.config.RepositoryConfiguration
-import com.here.ort.model.yamlMapper
 import com.here.ort.utils.CommandLineTool
 import com.here.ort.utils.stashDirectories
 
@@ -80,7 +71,22 @@ class GoMod(
 
         val modules = stashDirectories(File(projectDir, "node_modules")).use {
             installDependencies(projectDir)
-            listModules(projectDir)
+            val vendorModuleList = listModules(projectDir)
+            val dependencyTree = getTree(projectDir)
+
+            val allPackageIds = (dependencyTree.keys + dependencyTree.values.flatten()).toSet()
+            val vendorPackageIds = vendorModuleList.map {
+                Identifier(managerName, "", it.name, it.version)
+            }.toSet()
+
+            val root = allPackageIds.find { it.version == "" }
+
+
+
+
+
+
+            vendorModuleList
         }
 
         val goProxy = getGoProxy()
@@ -139,10 +145,48 @@ class GoMod(
             .requireSuccess()
             .stdout
 
+        println(vendorModulesJson)
+
         return jsonMapper
             .readValues<ModuleDependency>(JsonFactory().createParser(vendorModulesJson))
             .asSequence()
             .toList()
+    }
+
+    private fun getTree(projectDir: File): Map<Identifier, Set<Identifier>> {
+        val graph = run("mod", "graph", workingDir = projectDir).requireSuccess().stdout
+
+        fun parseEntry(entry: String): Identifier =
+            Identifier(
+                type = managerName,
+                namespace = "",
+                name = entry.substringBefore('@'),
+                version = entry.substringAfter('@', "")
+            )
+
+        val result = mutableMapOf<Identifier, MutableSet<Identifier>>()
+        for (line in graph.lines()) {
+            if (line.isBlank() || line.indexOf(' ') == -1) continue
+
+            val columns = line.split(' ')
+            require(columns.size == 2) { "Expecting exactly one occurence of ' ' on any non-blank line."}
+
+            val parent = parseEntry(columns[0])
+            val child = parseEntry(columns[1])
+
+            result.getOrPut(parent, { mutableSetOf() }).add(child)
+        }
+
+        (result.keys + result.values.flatten())
+            .distinct()
+            .filter { it.version == "" }
+            .let { packagesWithoutVersion ->
+                require(packagesWithoutVersion.size == 1) {
+                    "Found more than one package without version: ${packagesWithoutVersion.joinToString()} "
+                }
+        }
+
+        return result
     }
 
     private fun getGoProxy(): String? {
